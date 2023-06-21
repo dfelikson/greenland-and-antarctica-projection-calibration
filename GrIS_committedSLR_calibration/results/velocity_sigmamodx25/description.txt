@@ -1,0 +1,1 @@
+start_year = 2007; end_year = 2015; grid_size =    50000; residual_sigma_multiplier =    25;
