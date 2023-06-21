@@ -13,6 +13,12 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import mascons
 
+from shapely.geometry import Point
+from shapely.geometry.polygon import Polygon
+
+from osgeo import ogr
+import matplotlib.path as mplPath
+
 import csv
 
 import rasterio
@@ -222,7 +228,7 @@ def grid_mod_dh(mod_name, x_centers, y_centers, x_span, y_span, var_name='dh_dyn
     
     if var_name == 'dh_dynanom': z_mod = z_mod.fillna(np.nan).where(z_mod < 1000.)
     
-    z_mod = np.sum(z_mod.data, axis=0)
+    if len(z_mod.shape) == 3: z_mod = np.sum(z_mod.data, axis=0)
         
     z_mod_grid = np.nan * np.zeros( (len(y_centers), len(x_centers)) )
     
@@ -238,7 +244,7 @@ def grid_mod_dh(mod_name, x_centers, y_centers, x_span, y_span, var_name='dh_dyn
             idx_row = np.where(np.logical_and(idx3, idx4))
             
             if len(idx_col[0]) > 0 and len(idx_row[0]) > 0:
-               z_mod_grid[row, col] = np.nanmean(z_mod[np.min(idx_row):np.max(idx_row), \
+                z_mod_grid[row, col] = np.nanmean(z_mod[np.min(idx_row):np.max(idx_row), \
                                                        np.min(idx_col):np.max(idx_col)])
             
     return z_mod_grid
@@ -388,26 +394,22 @@ def plot_GSFCmascons(lon_centers, lat_centers, cmwe_delta, min_lons, max_lons, m
     # This will allow us to set colormap values for use with a second layer of "fill" data
     # representing the total extent of each mascon. These scatter points will be covered by
     # the "fill" images, and thus not visible in the final map.
-    sc = plt.scatter(lon_centers, lat_centers, 1, c=cmwe_delta, zorder=0, transform=ccrs.PlateCarree(),
-                     cmap=cmap, vmin=vmin, vmax=vmax)
+    sc = ax.scatter(lon_centers, lat_centers, 1, c=cmwe_delta, zorder=0, transform=ccrs.PlateCarree(),
+                         cmap=cmap, vmin=vmin, vmax=vmax)
 
-    normal = plt.Normalize(vmin, vmax)
-    #cmap = plt.cm.coolwarm_r(normal(cmwe_delta))
-    cmap = plt.get_cmap(cmap)
-    cmap = cmap(normal(cmwe_delta))
     # Using the colormap info from above, draw each GIS mascon and fill with appropriate color
+    cmap = plt.get_cmap(cmap)
     N_ints = 10
     for i in range(len(cmwe_delta)):
         x = np.append(np.linspace(min_lons[i], max_lons[i], N_ints),
                       np.linspace(max_lons[i], min_lons[i], N_ints))
         y = np.append(min_lats[i]*np.ones(N_ints), max_lats[i]*np.ones(N_ints))
-        plt.fill(x, y, facecolor=cmap[i][:], edgecolor='none', zorder=5, transform=ccrs.PlateCarree())
+        
+        cmwe_delta_normalized = (cmwe_delta[i] - vmin) / (vmax - vmin)
+        ax.fill(x, y, facecolor=cmap(cmwe_delta_normalized), edgecolor='none', zorder=5, transform=ccrs.PlateCarree())
 
-    #c = plt.colorbar(orientation='horizontal')
-    #c.set_label('Δ cm w.e., model ({0} to {1})'.format('2007', '2015')) #format(start_date, end_date))
-    
     ax.coastlines(resolution='10m', zorder=7, linewidth=0.5)
-    ax.gridlines(zorder=8, linestyle=':', linewidth=0.5)
+    #ax.gridlines(zorder=8, linestyle=':', linewidth=0.5)
     
     sc.remove()
     
@@ -441,3 +443,103 @@ def load_gscf_mascons():
         lithk_proj = gis_ds['Polar_Stereographic']
 
         gis_ds.close()
+
+        
+def plot_GSFCmascons_by_basin(lon_centers, lat_centers, gsfc_cmwe_delta, mascon_labels, ax=None, vmin=-5000, vmax=0, cmap='Reds_r', verbose=False):
+    polar_stereographic = ccrs.Stereographic(
+        central_latitude=90.0,
+        central_longitude=-45.0,
+        false_easting=0.0,
+        false_northing=0.0,
+        true_scale_latitude=70.0,
+        globe=ccrs.Globe('WGS84')
+    )
+    
+
+    xy_mascons = polar_stereographic.transform_points(ccrs.Geodetic(), lon_centers, lat_centers)
+
+    gsfc_cmwe_delta_sums = dict()
+    gsfc_cmwe_basin_rignot = dict()
+    for basin_idx, basin_str in enumerate(['CW', 'NE', 'NO', 'NW', 'SE', 'SW']):
+        basin_file = '../utilities/rignot_basins_' + basin_str + '.exp'
+
+        x_basin = list()
+        y_basin = list()
+        xy_basin = list()
+        with open(basin_file) as f:
+            for i in range(5):
+                next(f)
+            for line in f:
+                x_basin.append( float(line.split()[0]) )
+                y_basin.append( float(line.split()[1]) )
+                xy_basin.append( (float(line.split()[0]), float(line.split()[1]) ) )
+
+        x_basin = np.array(x_basin)
+        y_basin = np.array(y_basin)
+
+        gsfc_cmwe_delta_sum = 0.
+        for i in range(len(xy_mascons)):
+            point = Point(xy_mascons[i][0], xy_mascons[i][1])
+            polygon = Polygon(xy_basin)
+            if polygon.contains(point):
+                gsfc_cmwe_basin_rignot[mascon_labels[i]] = basin_str
+                gsfc_cmwe_delta_sum += gsfc_cmwe_delta[i]
+                
+        gsfc_cmwe_delta_sums[basin_str] = gsfc_cmwe_delta_sum
+        
+        if verbose: print('{:2s} {: 4.1f}'.format(basin_str, gsfc_cmwe_delta_sum))
+        
+    sc = plot_values_by_basin(gsfc_cmwe_delta_sums, ax, cmap, vmin, vmax)
+
+    return sc, gsfc_cmwe_basin_rignot
+
+
+def plot_values_by_basin(gsfc_cmwe_delta_sums, ax, cmap, vmin, vmax):
+    # Open the shapefile
+    shapefile = ogr.Open('../utilities/IMBIE_Rignot_Basins/GRE_Basins_IMBIE2_v1.3.shp')
+
+    # Get the layer
+    layer = shapefile.GetLayer()
+
+    # Iterate over the features in the layer
+    x_basin = dict()
+    y_basin = dict()
+    x_means = dict()
+    y_means = dict()
+    for feature in layer:
+        # Get the attributes of the feature
+        attributes = feature.items()
+        basin = attributes['SUBREGION1']
+        if basin != 'ICE_CAP':
+            # Get the geometry of the feature
+            geometry = feature.GetGeometryRef()
+            ring = geometry.GetGeometryRef(0)
+            points = mplPath.Path(ring.GetPoints())
+            x, y = zip(*points.to_polygons()[0])
+            x_basin[basin] = x
+            y_basin[basin] = y
+            x_means[basin] = np.mean(x)
+            y_means[basin] = np.mean(y)
+
+    x_means_array = np.empty( len(gsfc_cmwe_delta_sums.keys()) )
+    y_means_array = np.empty( len(gsfc_cmwe_delta_sums.keys()) )
+    gsfc_cmwe_delta_sums_array = np.empty( len(gsfc_cmwe_delta_sums.keys()) )
+    for i, basin in enumerate(gsfc_cmwe_delta_sums.keys()):
+        x_means_array[i] = x_means[basin]
+        y_means_array[i] = y_means[basin]
+        gsfc_cmwe_delta_sums_array[i] = gsfc_cmwe_delta_sums[basin]
+
+    sc = ax.scatter(x_means_array, y_means_array, 1, c=gsfc_cmwe_delta_sums_array, transform=ccrs.PlateCarree(),
+                     cmap=cmap, vmin=vmin, vmax=vmax)
+    cmap = plt.get_cmap(cmap)
+
+    for i, basin in enumerate(gsfc_cmwe_delta_sums.keys()):
+        gsfc_cmwe_delta_sums_array_normalized = (gsfc_cmwe_delta_sums_array[i] - vmin) / (vmax - vmin)
+        ax.fill(x_basin[basin], y_basin[basin], facecolor=cmap(gsfc_cmwe_delta_sums_array_normalized), edgecolor='none', transform=ccrs.PlateCarree())
+
+    ax.coastlines(resolution='10m', zorder=7, linewidth=0.5)
+    #ax.gridlines(zorder=8, linestyle=':', linewidth=0.5)
+
+    sc.remove()
+    
+    return sc

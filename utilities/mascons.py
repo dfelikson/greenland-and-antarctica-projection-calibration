@@ -71,7 +71,7 @@ def load_gsfc_solution(h5_filename, lon_wrap='pm180'):
         mascons = GSFCmascons(f, lon_wrap)
     return mascons
 
-def points_to_mascons(mascons, lats, lons, values):
+def points_to_mascons(mascons, lats, lons, values, location=None):
     d2r = np.pi/180
     
     min_lats = mascons.lat_centers - mascons.lat_spans/2
@@ -81,6 +81,10 @@ def points_to_mascons(mascons, lats, lons, values):
     
     mscn_mean = np.nan * np.ones(mascons.N_mascons)
     for i in range(mascons.N_mascons):
+        
+        if location is not None:
+            if mascons.locations[i] != location:
+                continue
         
         if np.min(lats) > max_lats[i]:
             continue
