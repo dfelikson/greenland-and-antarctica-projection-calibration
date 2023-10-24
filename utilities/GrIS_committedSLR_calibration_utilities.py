@@ -422,28 +422,59 @@ def load_gscf_mascons():
     import cartopy.crs as ccrs
     import mascons
 
-    # Load GRACE and Model Data
+    gsfc = dict()
+    
+    file = open('../utilities/GSFC_highres_trends_GRACE_200701-201501_RL06v1.0_GSM-ICE6GD_GrIS.txt', 'r')
+    lines = file.readlines()
+    file.close()
 
-    # Load GSFC mascons
-    h5_filename = '/home/jovyan/GAPC/greenland-and-antarctica-projection-calibration/utilities/GSFC.glb.200301_201607_v02.4-GeruoA.h5'
-    gsfc = mascons.load_gsfc_solution(h5_filename, lon_wrap='pm180')
+    gsfc_cmwe_delta = list()
+    gsfc_cmwe_delta_sigma = list()
+    lat_centers = list()
+    lon_centers = list()
+    min_lons = list()
+    max_lons = list()
+    min_lats = list()
+    max_lats = list()
+    areas = list()
+    labels = list()
+
+    for line in lines:
+        lat_centers.append(float(line.split(',')[0]))
+        lon_centers.append(float(line.split(',')[1]))
+        gsfc_cmwe_delta.append(float(line.split(',')[2]))
+        gsfc_cmwe_delta_sigma.append(float(line.split(',')[3]))
+
+        min_lats.append(float(line.split(',')[4]))
+        max_lats.append(float(line.split(',')[5]))
+        min_lons.append(float(line.split(',')[6]))
+        max_lons.append(float(line.split(',')[7]))
+        areas.append(float(line.split(',')[8]))
+        labels.append(float(line.split(',')[9]))
+
+    gsfc_cmwe_delta = np.array(gsfc_cmwe_delta)
+    gsfc_cmwe_delta_sigma = np.array(gsfc_cmwe_delta_sigma)
+    lat_centers = np.array(lat_centers)
+    lon_centers = np.array(lon_centers)
+    min_lats = np.array(min_lats)
+    max_lats = np.array(max_lats)
+    min_lons = np.array(min_lons)
+    max_lons = np.array(max_lons)
+    areas = np.array(areas)
+    labels = np.array(labels)
+
+    gsfc['cmwe_delta'] = np.array(gsfc_cmwe_delta)
+    gsfc['cmwe_delta_sigma'] = np.array(gsfc_cmwe_delta_sigma)
+    gsfc['lat_centers'] = np.array(lat_centers)
+    gsfc['lon_centers'] = np.array(lon_centers)
+    gsfc['min_lons'] = np.array(min_lons)
+    gsfc['max_lons'] = np.array(max_lons)
+    gsfc['min_lats'] = np.array(min_lats)
+    gsfc['max_lats'] = np.array(max_lats)
+    gsfc['areas'] = np.array(areas)
+    gsfc['labels'] = np.array(labels)
 
     return gsfc
-
-    if False:
-        # Load GIS model into an Xarray
-        #nc_filename = './lithk_GIS_IMAU_IMAUICE1_asmb.nc'      # CHANGED
-        member = 'A0000'
-        #nc_filename = '../../thickness_nc/gris.proj.cmmtt.{0}.thickness.nc'.format(member)
-        #nc_filename = '/Volumes/modelbackup/committedSLR/netcdf/gris.proj.cmmtt.{0}.thickness.nc'.format(member)
-        #gis_ds = xr.open_dataset(nc_filename, engine='netcdf4')
-        gis_ds = xr.open_dataset(mod_name, engine='zarr')
-
-        lithk = gis_ds['lithk']
-        lithk_proj = gis_ds['Polar_Stereographic']
-
-        gis_ds.close()
-
         
 def plot_GSFCmascons_by_basin(lon_centers, lat_centers, gsfc_cmwe_delta, mascon_labels, ax=None, vmin=-5000, vmax=0, cmap='Reds_r', verbose=False):
     polar_stereographic = ccrs.Stereographic(
